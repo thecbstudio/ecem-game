@@ -12,13 +12,11 @@ class GameRoom {
   constructor(socket1, socket2, io) {
     this.id = Utils.generateId();
     this.io = io;
-    this.sockets = [socket1, socket2];
+    this.sockets = socket2 ? [socket1, socket2] : [socket1];
 
-    // Players: socket1 = warrior (Cinar), socket2 = archer (Ecem)
-    this.players = [
-      new Player(socket1.id, 'warrior', 0),
-      new Player(socket2.id, 'archer', 1)
-    ];
+    // Players: socket1 = warrior (Cinar), socket2 = archer (Ecem, optional)
+    this.players = [new Player(socket1.id, 'warrior', 0)];
+    if (socket2) this.players.push(new Player(socket2.id, 'archer', 1));
 
     this.currentLevel = 0;
     this.phase = 'lobby'; // lobby, playing, dialogue, escape, gameover, victory
@@ -36,34 +34,51 @@ class GameRoom {
     this.escapeActive = false;
     this.pressurePlatesActive = new Set();
 
+    this._socketHandlers = []; // {socket, event, fn} for cleanup
+    this._dialogueAutoTimer = null;
+
     this._bindSockets();
   }
 
   _bindSockets() {
     for (const socket of this.sockets) {
-      socket.on('player:input', (input) => {
+      const onInput = (input) => {
         const player = this.players.find(p => p.id === socket.id);
         if (player) player.applyInput(input);
-      });
-
-      socket.on('player:equip', ({ itemId, slot }) => {
+      };
+      const onEquip = ({ itemId, slot }) => {
         const player = this.players.find(p => p.id === socket.id);
         if (player && this.lootSystem) {
           this.lootSystem.equipItem(player, itemId, slot);
         }
-      });
-
-      socket.on('player:ready', () => {
+      };
+      const onReady = () => {
         this.dialogueReady.add(socket.id);
         if (this.dialogueReady.size >= 1) {
           this._advanceDialogue();
         }
-      });
+      };
+      const onDisconnect = () => this._handleDisconnect(socket.id);
 
-      socket.on('disconnect', () => {
-        this._handleDisconnect(socket.id);
-      });
+      socket.on('player:input', onInput);
+      socket.on('player:equip', onEquip);
+      socket.on('player:ready', onReady);
+      socket.on('disconnect', onDisconnect);
+
+      this._socketHandlers.push(
+        { socket, event: 'player:input', fn: onInput },
+        { socket, event: 'player:equip', fn: onEquip },
+        { socket, event: 'player:ready', fn: onReady },
+        { socket, event: 'disconnect', fn: onDisconnect }
+      );
     }
+  }
+
+  _unbindSockets() {
+    for (const h of this._socketHandlers) {
+      try { h.socket.off(h.event, h.fn); } catch (_) {}
+    }
+    this._socketHandlers = [];
   }
 
   start() {
@@ -93,7 +108,7 @@ class GameRoom {
     }
 
     this.phase = 'playing';
-    if (!this.loop._interval) this.loop.start();
+    if (!this.loop.isRunning()) this.loop.start();
 
     this._emitAll('level:start', {
       level: levelIndex,
@@ -309,13 +324,19 @@ class GameRoom {
     this.dialogueReady.clear();
     this._emitAll('dialogue:start', { key, script, line: 0 });
 
+    // Clear any previous auto-timer before starting a new one
+    if (this._dialogueAutoTimer) {
+      clearInterval(this._dialogueAutoTimer);
+      this._dialogueAutoTimer = null;
+    }
     // Auto-advance each line after 6 seconds if no player input
     this._dialogueAutoTimer = setInterval(() => {
       if (this.dialogueQueue) {
         this.dialogueReady.clear();
         this._advanceDialogue();
-      } else {
+      } else if (this._dialogueAutoTimer) {
         clearInterval(this._dialogueAutoTimer);
+        this._dialogueAutoTimer = null;
       }
     }, 6000);
   }
@@ -325,7 +346,10 @@ class GameRoom {
     this.dialogueLine++;
     this.dialogueReady.clear();
     if (this.dialogueLine >= this.dialogueQueue.script.length) {
-      clearInterval(this._dialogueAutoTimer);
+      if (this._dialogueAutoTimer) {
+        clearInterval(this._dialogueAutoTimer);
+        this._dialogueAutoTimer = null;
+      }
       const cb = this.dialogueQueue.callback;
       this.dialogueQueue = null;
       if (cb) cb();
@@ -359,7 +383,7 @@ class GameRoom {
 
   _handleDisconnect(socketId) {
     console.log(`Player ${socketId} disconnected from room ${this.id}`);
-    this.loop.stop();
+    this._teardown();
     this._emitAll('player:disconnected', { socketId });
   }
 
@@ -371,6 +395,10 @@ class GameRoom {
     if (this.phase === 'gameover' || this.phase === 'victory') return;
     this.phase = 'gameover';
     this.loop.stop();
+    if (this._dialogueAutoTimer) {
+      clearInterval(this._dialogueAutoTimer);
+      this._dialogueAutoTimer = null;
+    }
     const stats = this.players.map(p => ({ name: p.name, kills: p.kills, level: p.level }));
     this._emitAll('game:over', { victory: won, stats });
   }
@@ -382,6 +410,15 @@ class GameRoom {
     this._startDialogue('escape_complete');
     const stats = this.players.map(p => ({ name: p.name, kills: p.kills, level: p.level }));
     this._emitAll('game:victory', { stats });
+  }
+
+  _teardown() {
+    this.loop.stop();
+    if (this._dialogueAutoTimer) {
+      clearInterval(this._dialogueAutoTimer);
+      this._dialogueAutoTimer = null;
+    }
+    this._unbindSockets();
   }
 }
 

@@ -30,6 +30,7 @@ io.on('connection', (socket) => {
 
   if (waitingPlayers.length >= 1) {
     const p1 = waitingPlayers.shift();
+    clearTimeout(p1._soloTimer);
     console.log(`Starting game: ${p1.id} (Cinar/Warrior) + ${socket.id} (Ecem/Archer)`);
     const room = new GameRoom(p1, socket, io);
     activeRooms.set(room.id, room);
@@ -37,21 +38,37 @@ io.on('connection', (socket) => {
     p1.emit('room:joined', { playerId: p1.id, playerIndex: 0, className: 'warrior', playerName: 'Cinar', roomId: room.id });
     socket.emit('room:joined', { playerId: socket.id, playerIndex: 1, className: 'archer', playerName: 'Ecem', roomId: room.id });
 
-    // Small delay so clients can transition to game scene
     setTimeout(() => room.start(), 1000);
   } else {
     waitingPlayers.push(socket);
     socket.emit('lobby:waiting', { message: 'Waiting for your partner to connect...', playerName: 'Cinar', className: 'warrior' });
     console.log(`Player ${socket.id} waiting in lobby (will be Cinar/Warrior)`);
+
+    // Start solo after 10 seconds if partner doesn't join
+    socket._soloTimer = setTimeout(() => {
+      const idx = waitingPlayers.indexOf(socket);
+      if (idx > -1) {
+        waitingPlayers.splice(idx, 1);
+        console.log(`Starting solo game for ${socket.id}`);
+        const room = new GameRoom(socket, null, io);
+        activeRooms.set(room.id, room);
+        socket.emit('room:joined', { playerId: socket.id, playerIndex: 0, className: 'warrior', playerName: 'Cinar', roomId: room.id });
+        setTimeout(() => room.start(), 1000);
+      }
+    }, 10000);
   }
 
   socket.on('disconnect', () => {
     console.log(`Player disconnected: ${socket.id}`);
     const idx = waitingPlayers.indexOf(socket);
-    if (idx > -1) waitingPlayers.splice(idx, 1);
+    if (idx > -1) {
+      clearTimeout(socket._soloTimer);
+      waitingPlayers.splice(idx, 1);
+    }
     for (const [id, room] of activeRooms) {
       if (room.hasPlayer(socket.id)) {
-        room._handleDisconnect(socket.id);
+        // GameRoom internally handles its own teardown via the
+        // 'disconnect' listener it registered on the socket.
         activeRooms.delete(id);
         break;
       }

@@ -156,9 +156,21 @@ class GameScene extends Phaser.Scene {
       }
     }
 
-    // Start world bounds
+    // Start world bounds. The dungeon is taller than wide, so if the world
+    // is narrower than the screen we pad the bounds equally on both sides
+    // so the camera can scroll to center the play area instead of pinning
+    // everything to the left edge.
     if (mapData.worldWidth && mapData.worldHeight) {
-      this.cameras.main.setBounds(0, 0, mapData.worldWidth, mapData.worldHeight);
+      const screenW = this.scale.width;
+      const screenH = this.scale.height;
+      const padX = Math.max(0, Math.ceil((screenW - mapData.worldWidth) / 2));
+      const padY = Math.max(0, Math.ceil((screenH - mapData.worldHeight) / 2));
+      this.cameras.main.setBounds(
+        -padX,
+        -padY,
+        mapData.worldWidth + 2 * padX,
+        mapData.worldHeight + 2 * padY
+      );
     }
   }
 
@@ -181,6 +193,7 @@ class GameScene extends Phaser.Scene {
 
   _buildHUD() {
     const W = this.scale.width;
+    const playerCount = this.gameState?.players?.length ?? (window.partnerJoined ? 2 : 1);
 
     // Player 1 (Cinar/Warrior) HUD — bottom left
     this.p1Hp = new HealthBar(this, 14, this.scale.height - 50, 120, 10).setScrollFactor(0).setDepth(90).addStaminaBar();
@@ -192,12 +205,17 @@ class GameScene extends Phaser.Scene {
       fontSize: '10px', fontFamily: 'monospace', color: PALETTE.TEXT_SAND
     }).setScrollFactor(0).setDepth(90);
 
-    // Player 2 (Ecem/Archer) HUD — bottom right
-    this.p2Hp = new HealthBar(this, W - 136, this.scale.height - 50, 120, 10).setScrollFactor(0).setDepth(90).addStaminaBar();
-    this.p2Name = this.add.text(W - 136, this.scale.height - 65, '♥ Ecem', {
-      fontSize: '13px', fontFamily: 'monospace', color: PALETTE.ARCHER_TEAL,
-      stroke: '#000', strokeThickness: 2
-    }).setScrollFactor(0).setDepth(90);
+    // Player 2 (Ecem/Archer) HUD — bottom right. Only when a partner is present.
+    if (playerCount >= 2) {
+      this.p2Hp = new HealthBar(this, W - 136, this.scale.height - 50, 120, 10).setScrollFactor(0).setDepth(90).addStaminaBar();
+      this.p2Name = this.add.text(W - 136, this.scale.height - 65, '♥ Ecem', {
+        fontSize: '13px', fontFamily: 'monospace', color: PALETTE.ARCHER_TEAL,
+        stroke: '#000', strokeThickness: 2
+      }).setScrollFactor(0).setDepth(90);
+    } else {
+      this.p2Hp = null;
+      this.p2Name = null;
+    }
 
     // Combo counter (warrior)
     this.comboText = this.add.text(14, this.scale.height - 90, '', {
@@ -264,8 +282,8 @@ class GameScene extends Phaser.Scene {
     // Update HUD
     this._updateHUD(state);
 
-    // Minimap
-    if (state.players) this.minimap.update(state.players);
+    // Minimap (players + enemies)
+    if (state.players) this.minimap.update(state.players, state.enemies);
   }
 
   _updateCamera(players) {
@@ -277,14 +295,17 @@ class GameScene extends Phaser.Scene {
     for (const p of alive) { cx += p.x; cy += p.y; }
     cx /= alive.length; cy /= alive.length;
 
-    this.cameras.main.scrollX = cx - this.scale.width / 2;
-    this.cameras.main.scrollY = cy - this.scale.height / 2;
+    // Store target; smoothing happens each frame in update()
+    this._cameraTargetX = cx - this.scale.width / 2;
+    this._cameraTargetY = cy - this.scale.height / 2;
 
     // Zoom out if players are far apart
     if (alive.length >= 2) {
       const dist = Math.sqrt(Math.pow(alive[0].x - alive[1].x, 2) + Math.pow(alive[0].y - alive[1].y, 2));
       const zoom = dist > 500 ? Math.max(0.5, 1 - (dist - 500) / 1000) : 1;
-      this.cameras.main.setZoom(zoom);
+      this._cameraTargetZoom = zoom;
+    } else {
+      this._cameraTargetZoom = 1;
     }
   }
 
@@ -319,18 +340,29 @@ class GameScene extends Phaser.Scene {
       this._catTargetY = pData.y;
     }
 
-    this.playerSprites[pData.id] = { sprite, nameText, hpBg, hpBar, cat, prevX: pData.x, prevY: pData.y };
+    this.playerSprites[pData.id] = {
+      sprite, nameText, hpBg, hpBar, cat,
+      targetX: pData.x, targetY: pData.y,
+      prevX: pData.x, prevY: pData.y
+    };
   }
 
   _updatePlayerSprite(pData) {
     const s = this.playerSprites[pData.id];
     if (!s) return;
 
-    // Interpolate position
-    s.sprite.x = pData.x;
-    s.sprite.y = pData.y;
-    s.nameText.x = pData.x;
-    s.nameText.y = pData.y - 28;
+    // Store target position; actual lerp happens in update() each frame.
+    // First-snap if the gap is huge (teleport / respawn / level start).
+    const dxSnap = pData.x - s.sprite.x;
+    const dySnap = pData.y - s.sprite.y;
+    if (Math.abs(dxSnap) > 200 || Math.abs(dySnap) > 200) {
+      s.sprite.x = pData.x;
+      s.sprite.y = pData.y;
+    }
+    s.targetX = pData.x;
+    s.targetY = pData.y;
+    s.nameText.x = s.sprite.x;
+    s.nameText.y = s.sprite.y - 28;
 
     // Sprite texture based on state
     const cls = pData.class;
@@ -362,24 +394,28 @@ class GameScene extends Phaser.Scene {
     s.sprite.alpha = pData.dead ? 0.3 : 1;
     s.nameText.alpha = pData.dead ? 0.3 : 1;
 
-    // HP bar above player
+    // HP bar above player — anchor to sprite position (interpolation-friendly)
     s.hpBg.clear();
     s.hpBar.clear();
     if (!pData.dead) {
       const bw = 30, bh = 3;
-      const bx = pData.x - 15, by = pData.y - 20;
+      const bx = s.sprite.x - 15, by = s.sprite.y - 20;
       s.hpBg.fillStyle(0x000000, 0.6);
       s.hpBg.fillRect(bx, by, bw, bh);
       const pct = Math.max(0, pData.hp / pData.maxHp);
       const col = pct > 0.5 ? PALETTE.HP_GREEN : pct > 0.25 ? 0xFFAA00 : PALETTE.HP_RED;
       s.hpBar.fillStyle(col);
       s.hpBar.fillRect(bx, by, Math.round(bw * pct), bh);
+      s._hpMeta = { bw, bh, pct, col };
+    } else {
+      s._hpMeta = null;
     }
 
     // Cat companion (Ecem's archer)
     if (s.cat) {
-      const targetX = pData.dead ? pData.x : pData.x - (Math.cos(pData.facing) > 0 ? 20 : -20);
-      const targetY = pData.y + 8;
+      const refX = s.sprite.x, refY = s.sprite.y;
+      const targetX = pData.dead ? refX : refX - (Math.cos(pData.facing) > 0 ? 20 : -20);
+      const targetY = refY + 8;
       s.cat.x += (targetX - s.cat.x) * 0.12;
       s.cat.y += (targetY - s.cat.y) * 0.12;
       // Cat animation
@@ -435,7 +471,7 @@ class GameScene extends Phaser.Scene {
       // Show boss HP bar
       this._showBossHpBar(eData);
     }
-    this.enemySprites[eData.id] = { sprite, hpBg, hpBar, phaseText };
+    this.enemySprites[eData.id] = { sprite, hpBg, hpBar, phaseText, targetX: eData.x, targetY: eData.y };
   }
 
   _getEnemyTextureKey(eData) {
@@ -456,8 +492,15 @@ class GameScene extends Phaser.Scene {
     const s = this.enemySprites[eData.id];
     if (!s) return;
 
-    s.sprite.x = eData.x;
-    s.sprite.y = eData.y;
+    // Lerp target — actual interpolation in update()
+    const dxSnap = eData.x - s.sprite.x;
+    const dySnap = eData.y - s.sprite.y;
+    if (Math.abs(dxSnap) > 200 || Math.abs(dySnap) > 200) {
+      s.sprite.x = eData.x;
+      s.sprite.y = eData.y;
+    }
+    s.targetX = eData.x;
+    s.targetY = eData.y;
 
     // Animate based on state & type
     const t = Date.now();
@@ -496,23 +539,26 @@ class GameScene extends Phaser.Scene {
       }
     }
 
-    // HP bar above enemy
+    // HP bar above enemy — follow rendered sprite position, not raw server pos,
+    // so it stays attached during interpolation.
     s.hpBg.clear();
     s.hpBar.clear();
     const bw = eData.isBoss ? 60 : 28;
     const bh = eData.isBoss ? 6 : 3;
-    const bx = eData.x - bw / 2, by = eData.y - (eData.isBoss ? 50 : 22);
+    const bx = s.sprite.x - bw / 2, by = s.sprite.y - (eData.isBoss ? 50 : 22);
     s.hpBg.fillStyle(0x000000, 0.7);
     s.hpBg.fillRect(bx, by, bw, bh);
     const pct = Math.max(0, eData.hp / eData.maxHp);
     const col = eData.isBoss ? PALETTE.CURSE_PURPLE : PALETTE.HP_RED;
     s.hpBar.fillStyle(col);
     s.hpBar.fillRect(bx, by, Math.round(bw * pct), bh);
+    // Cache for re-anchoring after lerp
+    s._hpMeta = { bw, bh, pct, col, isBoss: eData.isBoss };
 
     // Boss phase text
     if (s.phaseText) {
-      s.phaseText.x = eData.x;
-      s.phaseText.y = eData.y - 55;
+      s.phaseText.x = s.sprite.x;
+      s.phaseText.y = s.sprite.y - 55;
       if (eData.isBoss) {
         const phText = eData.immune ? '— IMMUNE —' : `Phase ${eData.phase}`;
         s.phaseText.setText(phText);
@@ -604,12 +650,15 @@ class GameScene extends Phaser.Scene {
 
     for (const lootItem of loot) {
       if (!this.lootSprites[lootItem.id]) {
-        const glow = this.add.image(lootItem.x, lootItem.y, 'loot_glow').setDepth(5).setAlpha(0.7);
+        const glow = this.add.image(lootItem.x, lootItem.y, 'loot_glow').setDepth(5).setAlpha(0.85);
+        const isPotion = lootItem.itemType === 'potion';
         const rarColor = { common: 0xFFFFFF, uncommon: PALETTE.UNCOMMON, rare: PALETTE.RARE, legendary: PALETTE.LEGENDARY };
-        glow.setTint(rarColor[lootItem.rarity] || 0xFFFFFF);
+        // Potions get a red glow so players read them as healing instantly.
+        glow.setTint(isPotion ? 0xFF4D6D : (rarColor[lootItem.rarity] || 0xFFFFFF));
+        if (isPotion) glow.setScale(1.15);
         const text = this.add.text(lootItem.x, lootItem.y - 16, lootItem.name || '', {
           fontSize: '9px', fontFamily: 'monospace',
-          color: PALETTE.RARITY_COLOR?.[lootItem.rarity] || '#FFFFFF',
+          color: isPotion ? '#FF8FA3' : (PALETTE.RARITY_COLOR?.[lootItem.rarity] || '#FFFFFF'),
           stroke: '#000', strokeThickness: 2
         }).setOrigin(0.5).setDepth(6);
         // Bounce animation
@@ -641,6 +690,10 @@ class GameScene extends Phaser.Scene {
         case 'loot_collected':
           Sound.playLootPickup();
           if (evt.item) this.lootPopup.show(evt.item);
+          break;
+        case 'potion_used':
+          Sound.playLootPickup();
+          if (evt.heal > 0) this.particles.healNumber(evt.x ?? 0, evt.y ?? 0, evt.heal);
           break;
         case 'heavy':
           this.particles.aoeRing(evt.x, evt.y, evt.radius, PALETTE.TORCH_ORANGE);
@@ -854,8 +907,58 @@ class GameScene extends Phaser.Scene {
     this.torchSprites = [];
   }
 
+  _lerpSprites(map, alpha) {
+    for (const id in map) {
+      const s = map[id];
+      if (!s || !s.sprite || s.targetX === undefined) continue;
+      s.sprite.x += (s.targetX - s.sprite.x) * alpha;
+      s.sprite.y += (s.targetY - s.sprite.y) * alpha;
+      // Re-anchor name text + HP bar to interpolated position
+      if (s.nameText) {
+        s.nameText.x = s.sprite.x;
+        s.nameText.y = s.sprite.y - 28;
+      }
+      if (s._hpMeta && s.hpBg && s.hpBar) {
+        const m = s._hpMeta;
+        const bx = s.sprite.x - m.bw / 2;
+        const by = s.sprite.y - (m.isBoss ? 50 : (m.bw === 30 ? 20 : 22));
+        s.hpBg.clear();
+        s.hpBg.fillStyle(0x000000, m.isBoss ? 0.7 : 0.6);
+        s.hpBg.fillRect(bx, by, m.bw, m.bh);
+        s.hpBar.clear();
+        s.hpBar.fillStyle(m.col);
+        s.hpBar.fillRect(bx, by, Math.round(m.bw * m.pct), m.bh);
+      }
+      if (s.phaseText) {
+        s.phaseText.x = s.sprite.x;
+        s.phaseText.y = s.sprite.y - 55;
+      }
+    }
+  }
+
   update(time, delta) {
     const dt = delta / 1000;
+
+    // Interpolate sprites toward latest server position.
+    // Server broadcasts at ~20 Hz (50 ms); render at 60 Hz.
+    // Exponential smoothing — frame-rate independent.
+    // alpha = 1 - exp(-k * dt). k ≈ 18 gives ~90% catch-up over 100 ms.
+    const k = 18;
+    const lerp = 1 - Math.exp(-k * dt);
+    this._lerpSprites(this.playerSprites, lerp);
+    this._lerpSprites(this.enemySprites, lerp);
+
+    // Smooth camera follow + zoom
+    const cam = this.cameras.main;
+    if (this._cameraTargetX !== undefined) {
+      const camLerp = 1 - Math.exp(-10 * dt);
+      cam.scrollX += (this._cameraTargetX - cam.scrollX) * camLerp;
+      cam.scrollY += (this._cameraTargetY - cam.scrollY) * camLerp;
+    }
+    if (this._cameraTargetZoom !== undefined) {
+      const zoomLerp = 1 - Math.exp(-4 * dt);
+      cam.setZoom(cam.zoom + (this._cameraTargetZoom - cam.zoom) * zoomLerp);
+    }
 
     // Input
     if (this.inputSystem) {

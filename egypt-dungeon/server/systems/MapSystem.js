@@ -46,13 +46,26 @@ class MapSystem {
     this.worldHeight = currentY * C.TILE_SIZE;
     this.worldWidth = (Math.max(...this.rooms.map(r => r.w)) + 8) * C.TILE_SIZE;
 
-    // Build solid grid (default passable, walls override)
+    // Build solid grid — anything NOT inside a placed room is solid.
+    // Without this, players walk through the gap on either side of the
+    // rooms (rooms start at tileOffX=4 so cols 0..3 and the right margin
+    // would be passable). Then room tiles overwrite as needed.
     const totalRows = currentY;
     const totalCols = Math.ceil(this.worldWidth / C.TILE_SIZE);
     for (let r = 0; r < totalRows; r++) {
       this.solidGrid[r] = [];
       for (let c = 0; c < totalCols; c++) {
-        this.solidGrid[r][c] = false; // default passable (only walls block)
+        this.solidGrid[r][c] = true; // default: solid (out of bounds)
+      }
+    }
+    // Carve room interiors as passable
+    for (const room of this.rooms) {
+      for (let ry = 0; ry < room.h; ry++) {
+        for (let rx = 0; rx < room.w; rx++) {
+          const wr = room.tileOffY + ry;
+          const wc = room.tileOffX + rx;
+          if (this.solidGrid[wr]) this.solidGrid[wr][wc] = false;
+        }
       }
     }
 
@@ -98,6 +111,34 @@ class MapSystem {
           if (tile === TILE.PLATE) {
             this.pressurePlates.push({ tx: worldCol, ty: worldRow, active: false });
           }
+        }
+      }
+    }
+
+    // Auto-connect doorways between vertically adjacent rooms.
+    // Templates aren't authored with door columns aligned, so the level
+    // would have only the 1-tile column where both happen to coincide.
+    // Make every door column on either side of the seam passable on
+    // both rows. This is the "carve the obvious geçit" fix.
+    for (let i = 0; i < this.rooms.length - 1; i++) {
+      const prev = this.rooms[i];
+      const next = this.rooms[i + 1];
+      const prevBottomRow = prev.tileOffY + prev.h - 1;
+      const nextTopRow    = next.tileOffY;
+      // prev's south door columns → carve them on next's north row
+      const prevBottomTiles = prev.tmpl.tiles[prev.h - 1] || [];
+      for (let c = 0; c < prev.w; c++) {
+        if (prevBottomTiles[c] === TILE.DOOR) {
+          const wc = prev.tileOffX + c;
+          if (this.solidGrid[nextTopRow]) this.solidGrid[nextTopRow][wc] = false;
+        }
+      }
+      // next's north door columns → carve them on prev's south row
+      const nextTopTiles = next.tmpl.tiles[0] || [];
+      for (let c = 0; c < next.w; c++) {
+        if (nextTopTiles[c] === TILE.DOOR) {
+          const wc = next.tileOffX + c;
+          if (this.solidGrid[prevBottomRow]) this.solidGrid[prevBottomRow][wc] = false;
         }
       }
     }
@@ -173,9 +214,10 @@ class MapSystem {
   getPlayerSpawnPositions() {
     const spawnRoom = this.rooms[0];
     if (!spawnRoom || !spawnRoom.tmpl.spawnPoints) {
+      // Spawn near the door (left side of room, close to bottom exit)
       return [
-        { x: (spawnRoom.tileOffX + 3) * C.TILE_SIZE + 16, y: (spawnRoom.tileOffY + 2) * C.TILE_SIZE + 16 },
-        { x: (spawnRoom.tileOffX + 6) * C.TILE_SIZE + 16, y: (spawnRoom.tileOffY + 2) * C.TILE_SIZE + 16 }
+        { x: (spawnRoom.tileOffX + 2) * C.TILE_SIZE + 16, y: (spawnRoom.tileOffY + 4) * C.TILE_SIZE + 16 },
+        { x: (spawnRoom.tileOffX + 3) * C.TILE_SIZE + 16, y: (spawnRoom.tileOffY + 4) * C.TILE_SIZE + 16 }
       ];
     }
     return spawnRoom.tmpl.spawnPoints.map(sp => ({
@@ -238,5 +280,3 @@ class MapSystem {
 }
 
 module.exports = MapSystem;
-
-

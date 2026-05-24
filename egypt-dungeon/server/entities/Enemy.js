@@ -224,8 +224,8 @@ class Enemy {
     return {
       id: this.id,
       type: this.type,
-      x: Math.round(this.x),
-      y: Math.round(this.y),
+      x: Math.round(this.x * 10) / 10,
+      y: Math.round(this.y * 10) / 10,
       hp: Math.round(this.hp),
       maxHp: this.maxHp,
       state: this.state,

@@ -9,6 +9,7 @@ class GameLoop {
   }
 
   start() {
+    if (this._interval) return;
     this.lastTick = Date.now();
     this._interval = setInterval(() => this._tick(), C.TICK_MS);
   }
@@ -18,6 +19,10 @@ class GameLoop {
       clearInterval(this._interval);
       this._interval = null;
     }
+  }
+
+  isRunning() {
+    return this._interval !== null;
   }
 
   _tick() {

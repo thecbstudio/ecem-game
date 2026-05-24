@@ -100,9 +100,18 @@ class Player {
       this.stamina = Math.min(this.maxStamina, this.stamina + C.STAMINA_REGEN * dt);
     }
 
-    // HP regen from item
+    // HP regen from items (always)
     if (this.stats.regen > 0) {
       this.hp = Math.min(this.maxHp + this.stats.hpBonus, this.hp + this.stats.regen * dt);
+    }
+    // Passive out-of-combat regen — kicks in 4s after last hit.
+    // Slow but steady: ~3% max HP per second once safe.
+    if (this.hp < this.maxHp + this.stats.hpBonus) {
+      const sinceHit = (Date.now() - this.lastHitTime) / 1000;
+      if (sinceHit > 4) {
+        const rate = (this.maxHp + this.stats.hpBonus) * 0.03;
+        this.hp = Math.min(this.maxHp + this.stats.hpBonus, this.hp + rate * dt);
+      }
     }
 
     // Knockback decay
@@ -277,8 +286,8 @@ class Player {
       class: this.class,
       name: this.name,
       index: this.index,
-      x: Math.round(this.x),
-      y: Math.round(this.y),
+      x: Math.round(this.x * 10) / 10,
+      y: Math.round(this.y * 10) / 10,
       hp: Math.round(this.hp),
       maxHp: this.maxHp,
       stamina: Math.round(this.stamina),

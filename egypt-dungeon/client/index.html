@@ -6,18 +6,29 @@
   <title>Tomb of Khamun ♥ Cinar & Ecem</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
+    html, body {
+      width: 100%;
+      height: 100%;
       background: #0A0600;
       overflow: hidden;
+    }
+    #game-container {
+      width: 100vw;
+      height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
-      min-height: 100vh;
     }
     #game-container canvas {
       display: block;
+      image-rendering: pixelated;
+      image-rendering: -moz-crisp-edges;
+      image-rendering: crisp-edges;
     }
+    /* Hide the favicon 404 spam */
+    link[rel="icon"] { display: none; }
   </style>
+  <link rel="icon" href="data:," />
 </head>
 <body>
   <div id="game-container"></div>

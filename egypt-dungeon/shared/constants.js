@@ -63,7 +63,7 @@ const CONSTANTS = {
     RARE: 'rare',
     LEGENDARY: 'legendary'
   },
-  LOOT_PICKUP_RANGE: 40,
+  LOOT_PICKUP_RANGE: 56,
   INVENTORY_SLOTS: 20,
   EQUIP_SLOTS: ['weapon', 'offhand', 'helmet', 'chest', 'amulet', 'ring'],
 

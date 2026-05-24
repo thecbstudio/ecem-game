@@ -53,6 +53,15 @@ function generateItem(itemType, rarity, floor, classHint) {
   const id = Utils.generateId();
   let item = { id, type: itemType, rarity, specials: [] };
 
+  if (itemType === 'potion') {
+    item.name = rarity === C.RARITY.LEGENDARY ? 'Greater Healing Potion'
+              : rarity === C.RARITY.RARE      ? 'Healing Potion'
+              :                                 'Minor Healing Potion';
+    item.heal = Math.round((30 + floor * 15) * mult);
+    item.consumable = true;
+    return item;
+  }
+
   if (itemType === 'weapon') {
     const cls = classHint || (Math.random() < 0.5 ? 'warrior' : 'archer');
     const names = WEAPON_NAMES[cls];
@@ -84,12 +93,12 @@ function generateItem(itemType, rarity, floor, classHint) {
 }
 
 const LOOT_TABLES = {
-  mummy:     { dropChance: 0.3, itemTypes: ['weapon','helmet','chest','amulet'] },
-  scarab:    { dropChance: 0.1, itemTypes: ['ring','amulet'] },
-  anubis:    { dropChance: 0.5, itemTypes: ['weapon','offhand','helmet','chest'] },
-  wisp:      { dropChance: 0.4, itemTypes: ['amulet','ring','chest'] },
-  statue:    { dropChance: 0.5, itemTypes: ['offhand','helmet','chest'] },
-  boss:      { dropChance: 1.0, itemTypes: ['weapon','weapon','chest','helmet'] }
+  mummy:     { dropChance: 0.55, itemTypes: ['weapon','helmet','chest','amulet','potion','potion'] },
+  scarab:    { dropChance: 0.35, itemTypes: ['ring','amulet','potion'] },
+  anubis:    { dropChance: 0.75, itemTypes: ['weapon','offhand','helmet','chest','potion'] },
+  wisp:      { dropChance: 0.60, itemTypes: ['amulet','ring','chest','potion'] },
+  statue:    { dropChance: 0.70, itemTypes: ['offhand','helmet','chest'] },
+  boss:      { dropChance: 1.0,  itemTypes: ['weapon','weapon','chest','helmet','potion'] }
 };
 
 function rollLoot(enemyType, floor, classHint) {

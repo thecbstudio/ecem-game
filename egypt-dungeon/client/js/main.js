@@ -12,14 +12,27 @@ const config = {
     GameScene,
     GameOverScene
   ],
+  scale: {
+    // Scale the 960×600 canvas to fill the window while preserving aspect.
+    // The HUD/minimap positions stay correct because they live inside the
+    // logical 960×600 coordinate space.
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+    parent: 'game-container',
+    width: 960,
+    height: 600
+  },
   render: {
     pixelArt: true,
-    antialias: false
+    antialias: false,
+    roundPixels: true
   },
   autoFocus: true
 };
 
 const game = new Phaser.Game(config);
+// Expose for debugging (devtools / automated tests). Harmless in prod.
+window.game = game;
 
 // Global socket (created in MenuScene)
 window.gameSocket = null;
