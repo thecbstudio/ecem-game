@@ -19,19 +19,25 @@ class MapSystem {
 
   _buildLevel() {
     const roomKeys = this.layout.rooms;
-    // Stack rooms vertically with small gap
+    // Find the widest room to center everything
+    const maxW = Math.max(...roomKeys.map(k => ROOM_TEMPLATES[k]?.w || 0));
+    const BASE_MARGIN = 4; // tiles of wall padding on each side
+
+    // Stack rooms vertically, centered horizontally
     let currentY = 0;
     const MARGIN = 0; // rooms placed directly adjacent
 
     for (let i = 0; i < roomKeys.length; i++) {
       const tmpl = ROOM_TEMPLATES[roomKeys[i]];
       if (!tmpl) continue;
+      // Center this room: offset so the room's center aligns with the widest room's center
+      const tileOffX = BASE_MARGIN + Math.floor((maxW - tmpl.w) / 2);
       const room = {
         key: roomKeys[i],
         tmpl,
-        worldX: 4 * C.TILE_SIZE, // center horizontally (offset)
+        worldX: tileOffX * C.TILE_SIZE,
         worldY: currentY * C.TILE_SIZE,
-        tileOffX: 4,
+        tileOffX,
         tileOffY: currentY,
         w: tmpl.w,
         h: tmpl.h,
@@ -44,7 +50,7 @@ class MapSystem {
     }
 
     this.worldHeight = currentY * C.TILE_SIZE;
-    this.worldWidth = (Math.max(...this.rooms.map(r => r.w)) + 8) * C.TILE_SIZE;
+    this.worldWidth = (maxW + BASE_MARGIN * 2) * C.TILE_SIZE;
 
     // Build solid grid — anything NOT inside a placed room is solid.
     // Without this, players walk through the gap on either side of the
@@ -116,29 +122,62 @@ class MapSystem {
     }
 
     // Auto-connect doorways between vertically adjacent rooms.
-    // Templates aren't authored with door columns aligned, so the level
-    // would have only the 1-tile column where both happen to coincide.
-    // Make every door column on either side of the seam passable on
-    // both rows. This is the "carve the obvious geçit" fix.
+    // When rooms have different widths, we build a visual + collision
+    // connector passage so there's no gap between them.
+    this.connectors = []; // {tx, ty} floor tiles to fill gaps between rooms
     for (let i = 0; i < this.rooms.length - 1; i++) {
       const prev = this.rooms[i];
       const next = this.rooms[i + 1];
       const prevBottomRow = prev.tileOffY + prev.h - 1;
       const nextTopRow    = next.tileOffY;
-      // prev's south door columns → carve them on next's north row
+
+      // Collect all door columns (world coords) from both sides
+      const prevDoorCols = [];
+      const nextDoorCols = [];
       const prevBottomTiles = prev.tmpl.tiles[prev.h - 1] || [];
       for (let c = 0; c < prev.w; c++) {
-        if (prevBottomTiles[c] === TILE.DOOR) {
-          const wc = prev.tileOffX + c;
-          if (this.solidGrid[nextTopRow]) this.solidGrid[nextTopRow][wc] = false;
-        }
+        if (prevBottomTiles[c] === TILE.DOOR) prevDoorCols.push(prev.tileOffX + c);
       }
-      // next's north door columns → carve them on prev's south row
       const nextTopTiles = next.tmpl.tiles[0] || [];
       for (let c = 0; c < next.w; c++) {
-        if (nextTopTiles[c] === TILE.DOOR) {
-          const wc = next.tileOffX + c;
-          if (this.solidGrid[prevBottomRow]) this.solidGrid[prevBottomRow][wc] = false;
+        if (nextTopTiles[c] === TILE.DOOR) nextDoorCols.push(next.tileOffX + c);
+      }
+
+      const allDoorCols = [...prevDoorCols, ...nextDoorCols];
+      if (allDoorCols.length === 0) continue;
+      const minCol = Math.min(...allDoorCols);
+      const maxCol = Math.max(...allDoorCols);
+
+      // Carve collision for the door passage
+      for (let wc = minCol; wc <= maxCol; wc++) {
+        if (this.solidGrid[prevBottomRow]) this.solidGrid[prevBottomRow][wc] = false;
+        if (this.solidGrid[nextTopRow])    this.solidGrid[nextTopRow][wc] = false;
+      }
+
+      // Build wall + floor connector tiles for the visual gap.
+      // For each column in the wider room's range at the seam:
+      // - If column is in the door passage range → floor
+      // - Otherwise → wall (so it looks enclosed)
+      const wideLeft  = Math.min(prev.tileOffX, next.tileOffX);
+      const wideRight = Math.max(prev.tileOffX + prev.w, next.tileOffX + next.w) - 1;
+
+      for (const row of [prevBottomRow, nextTopRow]) {
+        for (let wc = wideLeft; wc <= wideRight; wc++) {
+          // Skip if this tile is already inside one of the rooms
+          const inPrev = wc >= prev.tileOffX && wc < prev.tileOffX + prev.w && row >= prev.tileOffY && row < prev.tileOffY + prev.h;
+          const inNext = wc >= next.tileOffX && wc < next.tileOffX + next.w && row >= next.tileOffY && row < next.tileOffY + next.h;
+          if (inPrev || inNext) continue;
+
+          // This tile is in the gap between rooms
+          if (wc >= minCol && wc <= maxCol) {
+            // Floor connector
+            this.connectors.push({ tx: wc, ty: row, tile: TILE.FLOOR });
+            if (this.solidGrid[row]) this.solidGrid[row][wc] = false;
+          } else {
+            // Wall connector
+            this.connectors.push({ tx: wc, ty: row, tile: TILE.WALL });
+            if (this.solidGrid[row]) this.solidGrid[row][wc] = true;
+          }
         }
       }
     }
@@ -272,6 +311,7 @@ class MapSystem {
       torches: this.torches,
       decorations: this.decorations,
       pressurePlates: this.pressurePlates,
+      connectors: this.connectors || [],
       worldWidth: this.worldWidth,
       worldHeight: this.worldHeight,
       palette: this.layout.palette

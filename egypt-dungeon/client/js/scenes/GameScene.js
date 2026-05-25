@@ -244,9 +244,21 @@ class GameScene extends Phaser.Scene {
   _buildTilemap(mapData) {
     if (!mapData || !mapData.rooms) return;
     const TS = 32;
+    const palette = mapData.palette;
+    const wallKey = this._tileKey(1, palette); // wall texture
 
+    // Step 1: Fill the ENTIRE world with wall tiles so there's no void.
+    const totalCols = Math.ceil(mapData.worldWidth / TS);
+    const totalRows = Math.ceil(mapData.worldHeight / TS);
+    for (let r = 0; r < totalRows; r++) {
+      for (let c = 0; c < totalCols; c++) {
+        const img = this.add.image(c * TS + TS/2, r * TS + TS/2, wallKey).setDepth(0);
+        this.tileSprites.push(img);
+      }
+    }
+
+    // Step 2: Overlay room tiles on top (floor, doors, traps, etc.)
     for (const room of mapData.rooms) {
-      const palette = mapData.palette;
       for (let ry = 0; ry < room.h; ry++) {
         for (let rx = 0; rx < room.w; rx++) {
           const tile = room.tiles[ry][rx];
@@ -254,7 +266,7 @@ class GameScene extends Phaser.Scene {
           const wy = (room.tileOffY + ry) * TS;
           let key = this._tileKey(tile, palette);
           if (!key) continue;
-          const img = this.add.image(wx + TS/2, wy + TS/2, key).setDepth(0);
+          const img = this.add.image(wx + TS/2, wy + TS/2, key).setDepth(1);
           this.tileSprites.push(img);
 
           if (tile === 4) { // torch
