@@ -178,7 +178,7 @@ class SoundSystem {
     });
   }
 
-  // Background music (simple looping melody)
+  // Background music — melody + bass drone + percussion
   startBGM(theme = 'level1') {
     if (!this.enabled || !this.ctx) return;
     if (this._currentTheme === theme) return;
@@ -195,9 +195,22 @@ class SoundSystem {
     const scale = scales[theme] || scales.level1;
     let noteIdx = 0;
     const noteLen = theme === 'boss' ? 0.3 : 0.4;
+    let beatIdx = 0;
+
+    // Bass drone — low continuous hum
+    const drone = this.ctx.createOscillator();
+    const droneGain = this.ctx.createGain();
+    drone.type = 'sine';
+    drone.frequency.value = scale[0] / 2; // one octave below root
+    droneGain.gain.value = 0.04;
+    drone.connect(droneGain);
+    droneGain.connect(this.masterGain);
+    drone.start();
+    this._bgmOscillators.push(drone);
 
     const playNote = () => {
       if (!this.enabled) return;
+      // Melody
       const freq = scale[noteIdx % scale.length];
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
@@ -209,7 +222,23 @@ class SoundSystem {
       gain.connect(this.masterGain);
       osc.start();
       osc.stop(this.ctx.currentTime + noteLen);
+
+      // Percussion on every other beat (filtered noise burst)
+      if (beatIdx % 2 === 0) {
+        const perc = this.ctx.createOscillator();
+        const pg = this.ctx.createGain();
+        perc.type = 'square';
+        perc.frequency.value = 60;
+        pg.gain.setValueAtTime(0.08, this.ctx.currentTime);
+        pg.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.05);
+        perc.connect(pg);
+        pg.connect(this.masterGain);
+        perc.start();
+        perc.stop(this.ctx.currentTime + 0.05);
+      }
+
       noteIdx++;
+      beatIdx++;
     };
 
     this._bgmInterval = setInterval(playNote, noteLen * 1000);
@@ -221,6 +250,10 @@ class SoundSystem {
       clearInterval(this._bgmInterval);
       this._bgmInterval = null;
     }
+    for (const osc of this._bgmOscillators) {
+      try { osc.stop(); } catch (_) {}
+    }
+    this._bgmOscillators = [];
     this._currentTheme = null;
   }
 

@@ -47,6 +47,15 @@ class GameScene extends Phaser.Scene {
     this.escapeModeActive = false;
     this.anubisChaseTarget = null;
 
+    // Pause menu state
+    this.paused = false;
+    this.pauseElements = [];
+    this._escKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
+    this.input.keyboard.addCapture('ESC');
+
+    // Tutorial shown once per session
+    this._tutorialShown = false;
+
     this._setupSockets();
 
     // Use any pre-received data
@@ -57,6 +66,102 @@ class GameScene extends Phaser.Scene {
       this._onDialogueStart(window.currentDialogue);
       window.currentDialogue = null;
     }
+  }
+
+  _showTutorial() {
+    if (this._tutorialShown || window._tutorialDone) return;
+    this._tutorialShown = true;
+    window._tutorialDone = true;
+
+    const W = this.scale.width, H = this.scale.height;
+    const els = [];
+
+    const bg = this.add.graphics().fillStyle(0x000000, 0.85).fillRect(0, 0, W, H)
+      .setScrollFactor(0).setDepth(500);
+    els.push(bg);
+
+    const title = this.add.text(W/2, 60, 'TOMB OF KHAMUN', {
+      fontSize: '22px', fontFamily: 'monospace', color: '#FFD700', fontStyle: 'bold'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(501);
+    els.push(title);
+
+    const controls = [
+      'WASD — Move',
+      'Mouse / SPACE — Attack',
+      'E — Ability (Dash / Rain of Arrows)',
+      'R — Ultimate (when rage full)',
+      'SHIFT — Heavy attack',
+      'TAB — Inventory',
+      'ENTER / SPACE — Advance dialogue',
+      'ESC — Pause menu',
+      '',
+      'Co-op: Warrior (Cinar) + Archer (Ecem)',
+      'Collect loot, clear rooms, defeat the Pharaoh!',
+    ];
+    const body = this.add.text(W/2, H/2 - 30, controls.join('\n'), {
+      fontSize: '14px', fontFamily: 'monospace', color: '#E8D5A3',
+      align: 'center', lineSpacing: 6
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(501);
+    els.push(body);
+
+    const hint = this.add.text(W/2, H - 50, '[ Press any key to start ]', {
+      fontSize: '13px', fontFamily: 'monospace', color: '#888'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(501);
+    els.push(hint);
+
+    const dismiss = () => {
+      for (const el of els) el.destroy();
+      this.input.keyboard.off('keydown', dismiss);
+      this.input.off('pointerdown', dismiss);
+    };
+    this.input.keyboard.on('keydown', dismiss);
+    this.input.on('pointerdown', dismiss);
+  }
+
+  _togglePause() {
+    if (this.paused) {
+      // Unpause
+      for (const el of this.pauseElements) el.destroy();
+      this.pauseElements = [];
+      this.paused = false;
+      return;
+    }
+    this.paused = true;
+    const W = this.scale.width, H = this.scale.height;
+
+    const bg = this.add.graphics().fillStyle(0x000000, 0.75).fillRect(0, 0, W, H)
+      .setScrollFactor(0).setDepth(400);
+    this.pauseElements.push(bg);
+
+    const title = this.add.text(W/2, H/2 - 80, 'PAUSED', {
+      fontSize: '28px', fontFamily: 'monospace', color: '#FFD700', fontStyle: 'bold'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(401);
+    this.pauseElements.push(title);
+
+    const menuItems = [
+      { label: 'Resume', action: () => this._togglePause() },
+      { label: 'Sound: ' + (Sound.enabled ? 'ON' : 'OFF'), action: (txt) => {
+        Sound.enabled = !Sound.enabled;
+        if (!Sound.enabled) Sound.stopBGM();
+        txt.setText('Sound: ' + (Sound.enabled ? 'ON' : 'OFF'));
+      }},
+      { label: 'Quit to Menu', action: () => {
+        this._togglePause();
+        Sound.stopBGM();
+        if (this.socket) this.socket.disconnect();
+        this.scene.start('MenuScene');
+      }}
+    ];
+
+    menuItems.forEach((item, i) => {
+      const txt = this.add.text(W/2, H/2 - 10 + i * 40, item.label, {
+        fontSize: '16px', fontFamily: 'monospace', color: '#E8D5A3'
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(401).setInteractive({ useHandCursor: true });
+      txt.on('pointerover', () => txt.setColor('#FFD700'));
+      txt.on('pointerout', () => txt.setColor('#E8D5A3'));
+      txt.on('pointerdown', () => item.action(txt));
+      this.pauseElements.push(txt);
+    });
   }
 
   _setupSockets() {
@@ -112,6 +217,9 @@ class GameScene extends Phaser.Scene {
     // Start music
     const theme = data.level === 0 ? 'level1' : data.level === 1 ? 'level2' : 'level3';
     Sound.startBGM(theme);
+
+    // Show tutorial on first level
+    if (data.level === 0) this._showTutorial();
 
     // Create input system (lazy, after map)
     if (!this.inputSystem) {
@@ -959,6 +1067,13 @@ class GameScene extends Phaser.Scene {
       const zoomLerp = 1 - Math.exp(-4 * dt);
       cam.setZoom(cam.zoom + (this._cameraTargetZoom - cam.zoom) * zoomLerp);
     }
+
+    // ESC → pause toggle
+    if (this._escKey && Phaser.Input.Keyboard.JustDown(this._escKey)) {
+      this._togglePause();
+    }
+    // Skip update when paused
+    if (this.paused) return;
 
     // Input
     if (this.inputSystem) {
