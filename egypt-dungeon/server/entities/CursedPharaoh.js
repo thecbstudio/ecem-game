@@ -27,7 +27,8 @@ class CursedPharaoh extends Boss {
     this._anubisChaseTimer = 0;
 
     // Phase 3 curse ground
-    this.curseZones = []; // {x,y,r} areas of damaging ground
+    this.curseZones = []; // {x,y,r} areas of damaging ground (absolute, updated each tick)
+    this._curseOffsets = []; // relative offsets from boss position
   }
 
   update(dt, players, mapSystem) {
@@ -57,6 +58,14 @@ class CursedPharaoh extends Boss {
     }
 
     super.update(dt, players, mapSystem);
+
+    // Phase 3: keep curse zones anchored to boss position
+    if (this.phase >= 3 && this._curseOffsets.length > 0) {
+      for (let i = 0; i < this._curseOffsets.length; i++) {
+        this.curseZones[i].x = this.x + this._curseOffsets[i].dx;
+        this.curseZones[i].y = this.y + this._curseOffsets[i].dy;
+      }
+    }
   }
 
   takeDamage(amount, kbx, kby) {
@@ -87,13 +96,14 @@ class CursedPharaoh extends Boss {
   _onPhase3() {
     this.speed = 55; // slower but tankier
     this.damage = Math.round(this.damage * 2);
-    // Generate curse zones
-    this.curseZones = [
-      { x: this.x - 100, y: this.y - 80, r: 60 },
-      { x: this.x + 100, y: this.y + 80, r: 60 },
-      { x: this.x - 80, y: this.y + 100, r: 50 },
-      { x: this.x + 80, y: this.y - 100, r: 50 },
+    // Store relative offsets so zones follow the boss as it moves
+    this._curseOffsets = [
+      { dx: -100, dy: -80, r: 60 },
+      { dx:  100, dy:  80, r: 60 },
+      { dx:  -80, dy: 100, r: 50 },
+      { dx:   80, dy: -100, r: 50 },
     ];
+    this.curseZones = this._curseOffsets.map(o => ({ x: this.x + o.dx, y: this.y + o.dy, r: o.r }));
     this.phaseEvents.push({ type: 'boss_phase3', bossId: this.id, curseZones: this.curseZones });
   }
 

@@ -54,7 +54,8 @@ class GameRoom {
       };
       const onReady = () => {
         this.dialogueReady.add(socket.id);
-        if (this.dialogueReady.size >= 1) {
+        // Require all connected players to press ready before advancing
+        if (this.dialogueReady.size >= this.players.length) {
           this._advanceDialogue();
         }
       };
@@ -115,6 +116,10 @@ class GameRoom {
       levelName: C.LEVELS[levelIndex],
       mapData: this.mapSystem.serialize()
     });
+
+    // Trigger level-entry dialogue
+    if (levelIndex === 1) this._startDialogue('level2_entry');
+    if (levelIndex === 2) this._startDialogue('level3_entry');
   }
 
   update(dt) {
@@ -225,9 +230,11 @@ class GameRoom {
       if (this.escapeTimer <= 0) {
         this._gameOver(false);
       }
-      // Check if both players reached exit (top of map)
-      const allEscaped = this.players.every(p => p.y < C.TILE_SIZE * 4);
-      if (allEscaped) {
+      // Check if both players reached exit (top of spawn room)
+      const spawnRoom = this.mapSystem.rooms[0];
+      const exitY = spawnRoom ? (spawnRoom.tileOffY + 4) * C.TILE_SIZE : C.TILE_SIZE * 4;
+      const allEscaped = this.players.filter(p => !p.dead).every(p => p.y < exitY);
+      if (allEscaped && this.players.some(p => !p.dead)) {
         this._victory();
       }
     }
@@ -383,8 +390,9 @@ class GameRoom {
 
   _handleDisconnect(socketId) {
     console.log(`Player ${socketId} disconnected from room ${this.id}`);
-    this._teardown();
+    // Emit BEFORE teardown so the remaining socket still receives the event
     this._emitAll('player:disconnected', { socketId });
+    this._teardown();
   }
 
   hasPlayer(socketId) {
