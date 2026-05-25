@@ -29,7 +29,7 @@ const SPECIAL_PROPERTIES = [
 function rollRarity(floor) {
   const roll = Math.random();
   // Floor increases legendary/rare chances
-  const legendary = 0.02 + floor * 0.03;
+  const legendary = 0.01 + floor * 0.02;
   const rare      = 0.10 + floor * 0.05;
   const uncommon  = 0.30;
   if (roll < legendary) return C.RARITY.LEGENDARY;
@@ -98,12 +98,22 @@ const LOOT_TABLES = {
   anubis:    { dropChance: 0.75, itemTypes: ['weapon','offhand','helmet','chest','potion'] },
   wisp:      { dropChance: 0.60, itemTypes: ['amulet','ring','chest','potion'] },
   statue:    { dropChance: 0.70, itemTypes: ['offhand','helmet','chest'] },
-  boss:      { dropChance: 1.0,  itemTypes: ['weapon','weapon','chest','helmet','potion'] }
+  boss:      { dropChance: 1.0,  itemTypes: ['weapon','weapon','chest','helmet','potion'], drops: 3 }
 };
 
 function rollLoot(enemyType, floor, classHint) {
   const table = LOOT_TABLES[enemyType] || LOOT_TABLES.mummy;
   if (Math.random() > table.dropChance) return null;
+  // Boss drops multiple items
+  if (table.drops && table.drops > 1) {
+    const items = [];
+    for (let i = 0; i < table.drops; i++) {
+      const rarity = rollRarity(floor);
+      const itemType = table.itemTypes[Utils.randInt(0, table.itemTypes.length)];
+      items.push(generateItem(itemType, rarity, floor, classHint));
+    }
+    return items; // array for multi-drop
+  }
   const rarity = rollRarity(floor);
   const itemType = table.itemTypes[Utils.randInt(0, table.itemTypes.length)];
   return generateItem(itemType, rarity, floor, classHint);

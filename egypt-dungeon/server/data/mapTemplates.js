@@ -209,6 +209,52 @@ const ROOM_TEMPLATES = {
     ]
   },
 
+  // --- TREASURE ROOM (small, bonus loot) ---
+  treasure_room: {
+    w: 8, h: 8,
+    tiles: [
+      [1,1,1,2,2,1,1,1],
+      [1,0,4,0,0,4,0,1],
+      [1,0,0,0,0,0,0,1],
+      [1,0,0,5,5,0,0,1],
+      [1,0,0,5,5,0,0,1],
+      [1,0,0,0,0,0,0,1],
+      [1,0,4,0,0,4,0,1],
+      [1,1,1,2,2,1,1,1],
+    ],
+    exits: [
+      { side:'north', tx:3, ty:0 },
+      { side:'south', tx:3, ty:7 }
+    ]
+  },
+
+  // --- GAUNTLET (long trap corridor with enemies) ---
+  gauntlet: {
+    w: 8, h: 16,
+    tiles: [
+      [1,1,1,2,2,1,1,1],
+      [1,0,0,0,0,0,0,1],
+      [1,0,3,0,0,3,0,1],
+      [1,0,0,0,0,0,0,1],
+      [1,1,0,0,0,0,1,1],
+      [1,0,0,0,0,0,0,1],
+      [1,0,3,0,0,3,0,1],
+      [1,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,1],
+      [1,0,3,0,0,3,0,1],
+      [1,0,0,0,0,0,0,1],
+      [1,1,0,0,0,0,1,1],
+      [1,0,0,0,0,0,0,1],
+      [1,0,3,0,0,3,0,1],
+      [1,0,0,0,0,0,0,1],
+      [1,1,1,2,2,1,1,1],
+    ],
+    exits: [
+      { side:'north', tx:3, ty:0 },
+      { side:'south', tx:3, ty:15 }
+    ]
+  },
+
   // --- ELITE ROOM (level 3) ---
   elite_room: {
     w: 16, h: 14,
@@ -245,13 +291,13 @@ const LEVEL_LAYOUTS = {
   },
   1: { // Cinar Gobus
     name: 'Cinar Gobus',
-    rooms: ['spawn', 'corridor_v', 'arena_small', 'corridor_v', 'trap_room', 'corridor_v', 'puzzle_room', 'corridor_v', 'water_room', 'corridor_v', 'boss_room'],
+    rooms: ['spawn', 'corridor_v', 'arena_small', 'corridor_v', 'trap_room', 'corridor_v', 'treasure_room', 'corridor_v', 'puzzle_room', 'corridor_v', 'water_room', 'corridor_v', 'boss_room'],
     palette: 'tomb',
     music: 'level2'
   },
   2: { // Gobuscukler
     name: 'Gobuscukler',
-    rooms: ['spawn', 'corridor_v', 'elite_room', 'corridor_v', 'arena_medium', 'corridor_v', 'elite_room', 'corridor_v', 'boss_room'],
+    rooms: ['spawn', 'corridor_v', 'elite_room', 'corridor_v', 'gauntlet', 'corridor_v', 'arena_medium', 'corridor_v', 'elite_room', 'corridor_v', 'boss_room'],
     palette: 'cursed',
     music: 'level3'
   }

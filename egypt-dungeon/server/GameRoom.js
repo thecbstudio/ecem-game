@@ -187,7 +187,12 @@ class GameRoom {
         const killedEnemy = enemies.find(e => e.id === evt.enemyId);
         const dropX = killedEnemy ? killedEnemy.x : 0;
         const dropY = killedEnemy ? killedEnemy.y : 0;
-        this.lootSystem.dropLoot(evt.loot, dropX, dropY);
+        // Support multi-drop (boss drops array of items)
+        const loots = Array.isArray(evt.loot) ? evt.loot : [evt.loot];
+        for (let li = 0; li < loots.length; li++) {
+          const spread = li * 20; // spread items apart
+          this.lootSystem.dropLoot(loots[li], dropX + spread - 20, dropY + spread - 20);
+        }
       }
       // Ankh wisp charge
       if (evt.type === 'kill' && boss) {
