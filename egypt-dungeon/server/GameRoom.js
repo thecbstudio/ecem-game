@@ -118,6 +118,7 @@ class GameRoom {
     });
 
     // Trigger level-entry dialogue
+    if (levelIndex === 0) this._startDialogue('intro');
     if (levelIndex === 1) this._startDialogue('level2_entry');
     if (levelIndex === 2) this._startDialogue('level3_entry');
   }

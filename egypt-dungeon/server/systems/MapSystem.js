@@ -28,8 +28,10 @@ class MapSystem {
     const MARGIN = 0; // rooms placed directly adjacent
 
     for (let i = 0; i < roomKeys.length; i++) {
-      const tmpl = ROOM_TEMPLATES[roomKeys[i]];
-      if (!tmpl) continue;
+      const src = ROOM_TEMPLATES[roomKeys[i]];
+      if (!src) continue;
+      // Deep-copy so shared templates (e.g. corridor_v used 6×) don't interfere
+      const tmpl = { ...src, tiles: src.tiles.map(row => [...row]) };
       // Center this room: offset so the room's center aligns with the widest room's center
       const tileOffX = BASE_MARGIN + Math.floor((maxW - tmpl.w) / 2);
       const room = {
@@ -124,7 +126,7 @@ class MapSystem {
     // Auto-connect doorways between vertically adjacent rooms.
     // When rooms have different widths, we build a visual + collision
     // connector passage so there's no gap between them.
-    this.connectors = []; // {tx, ty} floor tiles to fill gaps between rooms
+    // Connector logic removed — client wall-fill handles visual gaps
     for (let i = 0; i < this.rooms.length - 1; i++) {
       const prev = this.rooms[i];
       const next = this.rooms[i + 1];
@@ -154,32 +156,8 @@ class MapSystem {
         if (this.solidGrid[nextTopRow])    this.solidGrid[nextTopRow][wc] = false;
       }
 
-      // Build wall + floor connector tiles for the visual gap.
-      // For each column in the wider room's range at the seam:
-      // - If column is in the door passage range → floor
-      // - Otherwise → wall (so it looks enclosed)
-      const wideLeft  = Math.min(prev.tileOffX, next.tileOffX);
-      const wideRight = Math.max(prev.tileOffX + prev.w, next.tileOffX + next.w) - 1;
-
-      for (const row of [prevBottomRow, nextTopRow]) {
-        for (let wc = wideLeft; wc <= wideRight; wc++) {
-          // Skip if this tile is already inside one of the rooms
-          const inPrev = wc >= prev.tileOffX && wc < prev.tileOffX + prev.w && row >= prev.tileOffY && row < prev.tileOffY + prev.h;
-          const inNext = wc >= next.tileOffX && wc < next.tileOffX + next.w && row >= next.tileOffY && row < next.tileOffY + next.h;
-          if (inPrev || inNext) continue;
-
-          // This tile is in the gap between rooms
-          if (wc >= minCol && wc <= maxCol) {
-            // Floor connector
-            this.connectors.push({ tx: wc, ty: row, tile: TILE.FLOOR });
-            if (this.solidGrid[row]) this.solidGrid[row][wc] = false;
-          } else {
-            // Wall connector
-            this.connectors.push({ tx: wc, ty: row, tile: TILE.WALL });
-            if (this.solidGrid[row]) this.solidGrid[row][wc] = true;
-          }
-        }
-      }
+      // No template mutation — the wall-fill in the client handles visuals.
+      // We only need to ensure collision grid is correct at the seam.
     }
   }
 
@@ -311,7 +289,6 @@ class MapSystem {
       torches: this.torches,
       decorations: this.decorations,
       pressurePlates: this.pressurePlates,
-      connectors: this.connectors || [],
       worldWidth: this.worldWidth,
       worldHeight: this.worldHeight,
       palette: this.layout.palette
